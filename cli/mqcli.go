@@ -32,6 +32,7 @@ const (
 	MQ_PULLJSON byte = 6
 	MQ_PING     byte = 7
 	MQ_ERROR    byte = 8
+	MQ_PUBMEM   byte = 9
 	MQ_ACK      byte = 0
 )
 
@@ -89,6 +90,10 @@ func (this *Cli) PubByte(topic string, msg []byte) (_r int64, err error) {
 
 func (this *Cli) PubJson(topic string, msg string) (_r int64, err error) {
 	return this._sendMsg(MQ_PUBJSON, JEncode(topic, 0, msg))
+}
+
+func (this *Cli) PubMem(topic string, msg string) (_r int64, err error) {
+	return this._sendMsg(MQ_PUBMEM, JEncode(topic, 0, msg))
 }
 
 func (this *Cli) Sub(topic string) (_r int64, err error) {

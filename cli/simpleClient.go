@@ -25,6 +25,7 @@ type SimpleClient struct {
 	PullJsonHandler func(jmb *JMqBean)
 	PubByteHandler  func(mb *MqBean)
 	PubJsonHandler  func(jmb *JMqBean)
+	PubMemHandler   func(jmb *JMqBean)
 	AckHandler      func(id int64)
 	ErrHandler      func(code int64)
 }
@@ -58,6 +59,10 @@ func (this *SimpleClient) Connect() (err error) {
 			if mb, err := JDecode(msg[1:]); err == nil && this.PubJsonHandler != nil {
 				this.PubJsonHandler(mb)
 			}
+		case MQ_PUBMEM:
+			if mb, err := JDecode(msg[1:]); err == nil && this.PubMemHandler != nil {
+				this.PubMemHandler(mb)
+			}
 		case MQ_PULLJSON:
 			if mb, err := JDecode(msg[1:]); err == nil && this.PullJsonHandler != nil {
 				this.PullJsonHandler(mb)
@@ -78,6 +83,7 @@ func (this *SimpleClient) Connect() (err error) {
 			}
 		}
 	}
+
 	if this.MqCli, err = NewCli(this.conf); err == nil {
 		logging.Debug("newCli success")
 		this.MqCli.Auth(this.Auth)
