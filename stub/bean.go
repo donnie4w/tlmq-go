@@ -211,3 +211,134 @@ func (p *MqBean) String() string {
   return fmt.Sprintf("MqBean(%+v)", *p)
 }
 
+// Attributes:
+//  - BeanList
+type MergeBean struct {
+  BeanList [][]byte `thrift:"beanList,1,required" db:"beanList" json:"beanList"`
+}
+
+func NewMergeBean() *MergeBean {
+  return &MergeBean{}
+}
+
+
+func (p *MergeBean) GetBeanList() [][]byte {
+  return p.BeanList
+}
+func (p *MergeBean) Read(ctx context.Context, iprot thrift.TProtocol) error {
+  if _, err := iprot.ReadStructBegin(ctx); err != nil {
+    return thrift.PrependError(fmt.Sprintf("%T read error: ", p), err)
+  }
+
+  var issetBeanList bool = false;
+
+  for {
+    _, fieldTypeId, fieldId, err := iprot.ReadFieldBegin(ctx)
+    if err != nil {
+      return thrift.PrependError(fmt.Sprintf("%T field %d read error: ", p, fieldId), err)
+    }
+    if fieldTypeId == thrift.STOP { break; }
+    switch fieldId {
+    case 1:
+      if fieldTypeId == thrift.LIST {
+        if err := p.ReadField1(ctx, iprot); err != nil {
+          return err
+        }
+        issetBeanList = true
+      } else {
+        if err := iprot.Skip(ctx, fieldTypeId); err != nil {
+          return err
+        }
+      }
+    default:
+      if err := iprot.Skip(ctx, fieldTypeId); err != nil {
+        return err
+      }
+    }
+    if err := iprot.ReadFieldEnd(ctx); err != nil {
+      return err
+    }
+  }
+  if err := iprot.ReadStructEnd(ctx); err != nil {
+    return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+  }
+  if !issetBeanList{
+    return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("Required field BeanList is not set"));
+  }
+  return nil
+}
+
+func (p *MergeBean)  ReadField1(ctx context.Context, iprot thrift.TProtocol) error {
+  _, size, err := iprot.ReadListBegin(ctx)
+  if err != nil {
+    return thrift.PrependError("error reading list begin: ", err)
+  }
+  tSlice := make([][]byte, 0, size)
+  p.BeanList =  tSlice
+  for i := 0; i < size; i ++ {
+var _elem0 []byte
+    if v, err := iprot.ReadBinary(ctx); err != nil {
+    return thrift.PrependError("error reading field 0: ", err)
+} else {
+    _elem0 = v
+}
+    p.BeanList = append(p.BeanList, _elem0)
+  }
+  if err := iprot.ReadListEnd(ctx); err != nil {
+    return thrift.PrependError("error reading list end: ", err)
+  }
+  return nil
+}
+
+func (p *MergeBean) Write(ctx context.Context, oprot thrift.TProtocol) error {
+  if err := oprot.WriteStructBegin(ctx, "MergeBean"); err != nil {
+    return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err) }
+  if p != nil {
+    if err := p.writeField1(ctx, oprot); err != nil { return err }
+  }
+  if err := oprot.WriteFieldStop(ctx); err != nil {
+    return thrift.PrependError("write field stop error: ", err) }
+  if err := oprot.WriteStructEnd(ctx); err != nil {
+    return thrift.PrependError("write struct stop error: ", err) }
+  return nil
+}
+
+func (p *MergeBean) writeField1(ctx context.Context, oprot thrift.TProtocol) (err error) {
+  if err := oprot.WriteFieldBegin(ctx, "beanList", thrift.LIST, 1); err != nil {
+    return thrift.PrependError(fmt.Sprintf("%T write field begin error 1:beanList: ", p), err) }
+  if err := oprot.WriteListBegin(ctx, thrift.STRING, len(p.BeanList)); err != nil {
+    return thrift.PrependError("error writing list begin: ", err)
+  }
+  for _, v := range p.BeanList {
+    if err := oprot.WriteBinary(ctx, v); err != nil {
+    return thrift.PrependError(fmt.Sprintf("%T. (0) field write error: ", p), err) }
+  }
+  if err := oprot.WriteListEnd(ctx); err != nil {
+    return thrift.PrependError("error writing list end: ", err)
+  }
+  if err := oprot.WriteFieldEnd(ctx); err != nil {
+    return thrift.PrependError(fmt.Sprintf("%T write field end error 1:beanList: ", p), err) }
+  return err
+}
+
+func (p *MergeBean) Equals(other *MergeBean) bool {
+  if p == other {
+    return true
+  } else if p == nil || other == nil {
+    return false
+  }
+  if len(p.BeanList) != len(other.BeanList) { return false }
+  for i, _tgt := range p.BeanList {
+    _src1 := other.BeanList[i]
+    if bytes.Compare(_tgt, _src1) != 0 { return false }
+  }
+  return true
+}
+
+func (p *MergeBean) String() string {
+  if p == nil {
+    return "<nil>"
+  }
+  return fmt.Sprintf("MergeBean(%+v)", *p)
+}
+
