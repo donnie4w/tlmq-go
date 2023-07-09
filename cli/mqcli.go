@@ -44,6 +44,8 @@ const (
 	MQ_RECVACK   byte = 10
 	MQ_MERGE     byte = 11
 	MQ_SUBCANCEL byte = 12
+	MQ_CURRENTID byte = 13
+	MQ_ZLIB      byte = 14
 	MQ_ACK       byte = 0
 )
 
@@ -145,12 +147,25 @@ func (this *Cli) PullJsonSync(topic string, id int64) (jmb *JMqBean, err error) 
 	bs, _ := this.getSendMsg(MQ_PULLJSON, JEncode(topic, id, ""))
 	var msg []byte
 	if msg, err = httpPost(bs, this.conf); err == nil {
-		jmb, err = JDecode(msg[1:])
 		switch msg[0] {
 		case MQ_ERROR:
 			err = errors.New(fmt.Sprint(BytesToInt64(msg[1:])))
 		case MQ_PULLJSON:
 			jmb, err = JDecode(msg[1:])
+		}
+	}
+	return
+}
+
+func (this *Cli) PullIdSync(topic string) (id int64, err error) {
+	bs, _ := this.getSendMsg(MQ_CURRENTID, []byte(topic))
+	var msg []byte
+	if msg, err = httpPost(bs, this.conf); err == nil {
+		switch msg[0] {
+		case MQ_ERROR:
+			err = errors.New(fmt.Sprint(BytesToInt64(msg[1:])))
+		case MQ_CURRENTID:
+			id, err = BytesToInt64(msg[1:9])
 		}
 	}
 	return
@@ -200,6 +215,14 @@ func (this *Cli) RecvAckOn(sec int8) (_r int64, err error) {
 
 func (this *Cli) MergeOn(size int8) (_r int64, err error) {
 	return this._sendMsg(MQ_MERGE, []byte{byte(size)})
+}
+
+func (this *Cli) SetZlib(on bool) (_r int64, err error) {
+	f := byte(0)
+	if on {
+		f = 1
+	}
+	return this._sendMsg(MQ_ZLIB, []byte{f})
 }
 
 func (this *Cli) Close() (err error) {
