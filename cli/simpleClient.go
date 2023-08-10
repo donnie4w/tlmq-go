@@ -24,15 +24,20 @@ type SimpleClient struct {
 	zlib      bool
 	subMap    map[string]byte
 	//接收服务器数据
-	PullByteHandler func(mb *MqBean)
-	PullJsonHandler func(jmb *JMqBean)
-	PubByteHandler  func(mb *MqBean)
-	PubJsonHandler  func(jmb *JMqBean)
-	PubMemHandler   func(jmb *JMqBean)
-	AckHandler      func(id int64)
-	ErrHandler      func(code int64)
+	pullByteHandler func(mb *MqBean)
+	pullJsonHandler func(jmb *JMqBean)
+	pubByteHandler  func(mb *MqBean)
+	pubJsonHandler  func(jmb *JMqBean)
+	pubMemHandler   func(jmb *JMqBean)
+	ackHandler      func(id int64)
+	errHandler      func(code int64)
 
-	Before func()
+	before func()
+}
+
+func NewMqClient(addr, auth string) MqClient {
+	sc := &SimpleClient{Url: addr, Auth: auth}
+	return sc
 }
 
 func (this *SimpleClient) Connect() (err error) {
@@ -72,8 +77,8 @@ func (this *SimpleClient) Connect() (err error) {
 			this.Sub(k)
 		}
 	}
-	if this.Before != nil {
-		this.Before()
+	if this.before != nil {
+		this.before()
 	}
 	return
 }
@@ -82,24 +87,24 @@ func (this *SimpleClient) doMsg(msg []byte) {
 	ty := msg[0]
 	switch ty {
 	case MQ_PUBBYTE:
-		if mb, err := TDecode(msg[1:], &MqBean{}); err == nil && this.PubByteHandler != nil {
-			go this.PubByteHandler(mb)
+		if mb, err := TDecode(msg[1:], &MqBean{}); err == nil && this.pubByteHandler != nil {
+			go this.pubByteHandler(mb)
 		}
 	case MQ_PULLBYTE:
-		if mb, err := TDecode(msg[1:], &MqBean{}); err == nil && this.PullByteHandler != nil {
-			go this.PullByteHandler(mb)
+		if mb, err := TDecode(msg[1:], &MqBean{}); err == nil && this.pullByteHandler != nil {
+			go this.pullByteHandler(mb)
 		}
 	case MQ_PUBJSON:
-		if mb, err := JDecode(msg[1:]); err == nil && this.PubJsonHandler != nil {
-			this.PubJsonHandler(mb)
+		if mb, err := JDecode(msg[1:]); err == nil && this.pubJsonHandler != nil {
+			this.pubJsonHandler(mb)
 		}
 	case MQ_PUBMEM:
-		if mb, err := JDecode(msg[1:]); err == nil && this.PubMemHandler != nil {
-			this.PubMemHandler(mb)
+		if mb, err := JDecode(msg[1:]); err == nil && this.pubMemHandler != nil {
+			this.pubMemHandler(mb)
 		}
 	case MQ_PULLJSON:
-		if mb, err := JDecode(msg[1:]); err == nil && this.PullJsonHandler != nil {
-			this.PullJsonHandler(mb)
+		if mb, err := JDecode(msg[1:]); err == nil && this.pullJsonHandler != nil {
+			this.pullJsonHandler(mb)
 		}
 	case MQ_PING:
 		this.pingCount--
@@ -124,20 +129,20 @@ func (this *SimpleClient) doMsg(msg []byte) {
 		}
 	case MQ_ACK:
 		if r, err := BytesToInt64(msg[1:]); err == nil {
-			if this.AckHandler != nil {
-				this.AckHandler(r)
+			if this.ackHandler != nil {
+				this.ackHandler(r)
 			}
 		}
 	case MQ_ERROR:
 		if r, err := BytesToInt64(msg[1:]); err == nil {
-			if this.ErrHandler != nil {
-				this.ErrHandler(r)
+			if this.errHandler != nil {
+				this.errHandler(r)
 			}
 		}
 	}
 }
 
-// 每3秒ping一次服务器，出错后超过次数时，关闭连接
+// ping the server every 3 seconds. Close the connection if the number of errors exceeds
 func (this *SimpleClient) ping() {
 	defer _recover()
 	ticker := time.NewTicker(3 * time.Second)
@@ -154,6 +159,7 @@ func (this *SimpleClient) ping() {
 END:
 }
 
+// Subscribe to a topic
 func (this *SimpleClient) Sub(topic string) (_r int64, err error) {
 	if this.subMap == nil {
 		this.subMap = make(map[string]byte, 0)
@@ -162,6 +168,7 @@ func (this *SimpleClient) Sub(topic string) (_r int64, err error) {
 	return this.MqCli.Sub(topic)
 }
 
+// Unsubscribed topic
 func (this *SimpleClient) SubCancel(topic string) (_r int64, err error) {
 	if this.subMap != nil {
 		delete(this.subMap, topic)
@@ -169,42 +176,52 @@ func (this *SimpleClient) SubCancel(topic string) (_r int64, err error) {
 	return this.MqCli.SubCancel(topic)
 }
 
+// Publishing topic and PubByteHandler will receive it
 func (this *SimpleClient) PubByte(topic string, msg []byte) (_r int64, err error) {
 	return this.MqCli.PubByte(topic, msg)
 }
 
+// Publishing topic and PubJsonHandler will receive it
 func (this *SimpleClient) PubJson(topic string, msg string) (_r int64, err error) {
 	return this.MqCli.PubJson(topic, msg)
 }
 
+// the topic body is not stored when use PubMem
 func (this *SimpleClient) PubMem(topic string, msg string) (_r int64, err error) {
 	return this.MqCli.PubMem(topic, msg)
 }
 
+// pull the topic body by topic id used asynchronization mode
 func (this *SimpleClient) PullByte(topic string, id int64) (_r int64, err error) {
 	return this.MqCli.PullByte(topic, id)
 }
 
+// pull the topic body by topic id used asynchronization mode
 func (this *SimpleClient) PullJson(topic string, id int64) (_r int64, err error) {
 	return this.MqCli.PullJson(topic, id)
 }
 
+// pull the topic body by topic id used synchronization mode
 func (this *SimpleClient) PullByteSync(topic string, id int64) (mb *MqBean, err error) {
 	return this.MqCli.PullByteSync(topic, id)
 }
 
+// pull the topic body by topic id used synchronization mode
 func (this *SimpleClient) PullJsonSync(topic string, id int64) (jmb *JMqBean, err error) {
 	return this.MqCli.PullJsonSync(topic, id)
 }
 
+// pull the maximum id number of the topic
 func (this *SimpleClient) PullIdSync(topic string) (id int64, err error) {
 	return this.MqCli.PullIdSync(topic)
 }
 
+// setup requires a client return receipt
 func (this *SimpleClient) RecvAckOn(sec int8) (_r int64, err error) {
 	return this.MqCli.RecvAckOn(sec)
 }
 
+// set the limit of the size of protocol data sent by the server before compression(Unit:MB)
 func (this *SimpleClient) MergeOn(size int8) (_r int64, err error) {
 	return this.MqCli.MergeOn(size)
 }
@@ -214,4 +231,31 @@ func (this *SimpleClient) SetZlib(on bool) (_r int64, err error) {
 		this.zlib = on
 	}
 	return
+}
+
+func (this *SimpleClient) PullByteHandler(f func(mb *MqBean)) {
+	this.pullByteHandler = f
+}
+func (this *SimpleClient) PullJsonHandler(f func(jmb *JMqBean)) {
+	this.pullJsonHandler = f
+}
+func (this *SimpleClient) PubByteHandler(f func(mb *MqBean)) {
+	this.pubByteHandler = f
+}
+func (this *SimpleClient) PubJsonHandler(f func(jmb *JMqBean)) {
+	this.pubJsonHandler = f
+}
+func (this *SimpleClient) PubMemHandler(f func(jmb *JMqBean)) {
+	this.pubMemHandler = f
+}
+func (this *SimpleClient) AckHandler(f func(id int64)) {
+	this.ackHandler = f
+}
+func (this *SimpleClient) ErrHandler(f func(code int64)) {
+	this.errHandler = f
+}
+
+// method after the connection successful
+func (this *SimpleClient) Before(f func()) {
+	this.before = f
 }

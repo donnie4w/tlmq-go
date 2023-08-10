@@ -264,7 +264,7 @@ func JDecode(bs []byte) (mb *JMqBean, err error) {
 
 func TEncode(ts thrift.TStruct) []byte {
 	buf := thrift.NewTMemoryBuffer()
-	tcf := thrift.NewTCompactProtocolFactory()
+	tcf := thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{})
 	tp := tcf.GetProtocol(buf)
 	ts.Write(context.Background(), tp)
 	return buf.Bytes()
@@ -273,7 +273,7 @@ func TEncode(ts thrift.TStruct) []byte {
 func TDecode[T thrift.TStruct](bs []byte, ts T) (_r T, err error) {
 	buf := thrift.NewTMemoryBuffer()
 	buf.Buffer = bytes.NewBuffer(bs)
-	tcf := thrift.NewTCompactProtocolFactory()
+	tcf := thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{})
 	tp := tcf.GetProtocol(buf)
 	err = ts.Read(context.Background(), tp)
 	return ts, err
@@ -297,12 +297,6 @@ func _recover() {
 	if err := recover(); err != nil {
 		logging.Error(err)
 	}
-}
-
-type JMqBean struct {
-	Id    int64
-	Topic string
-	Msg   string
 }
 
 func CRC32(bs []byte) uint32 {
