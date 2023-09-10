@@ -2,7 +2,7 @@
 
 ------------
 
-See the example at  http://tlnet.top/tlmq
+See the example at  https://tlnet.top/tlmq
 
 ```go
 新建mq客户端实例
