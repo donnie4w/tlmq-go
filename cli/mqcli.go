@@ -351,7 +351,6 @@ func httpPost(bs []byte, conf *Config) (_r []byte, err error) {
 			defer resp.Body.Close()
 			var body []byte
 			if body, err = io.ReadAll(resp.Body); err == nil {
-				defer resp.Body.Close()
 				_r = body
 			}
 		}
