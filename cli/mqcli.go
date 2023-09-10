@@ -343,7 +343,7 @@ func httpPost(bs []byte, conf *Config) (_r []byte, err error) {
 	}
 	var req *http.Request
 	if req, err = http.NewRequestWithContext(context.Background(), http.MethodPost, conf.HttpUrl, bodyReader); err == nil {
-		defer req.Body.Close()
+		req.Close = true
 		req.Header.Set("Origin", conf.Origin)
 		req.AddCookie(&http.Cookie{Name: "auth", Value: conf.Auth})
 		var resp *http.Response
