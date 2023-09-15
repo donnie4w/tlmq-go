@@ -168,6 +168,15 @@ func (this *SimpleClient) Sub(topic string) (_r int64, err error) {
 	return this.MqCli.Sub(topic)
 }
 
+// Subscribe to a topic
+func (this *SimpleClient) SubJson(topic string) (_r int64, err error) {
+	if this.subMap == nil {
+		this.subMap = make(map[string]byte, 0)
+	}
+	this.subMap[topic] = 0
+	return this.MqCli.SubJson(topic)
+}
+
 // Unsubscribed topic
 func (this *SimpleClient) SubCancel(topic string) (_r int64, err error) {
 	if this.subMap != nil {
