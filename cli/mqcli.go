@@ -46,6 +46,7 @@ const (
 	MQ_SUBCANCEL byte = 12
 	MQ_CURRENTID byte = 13
 	MQ_ZLIB      byte = 14
+	MQ_DEL       byte = 15
 	MQ_ACK       byte = 0
 )
 
@@ -111,6 +112,10 @@ func (this *Cli) PubJson(topic string, msg string) (_r int64, err error) {
 
 func (this *Cli) PubMem(topic string, msg string) (_r int64, err error) {
 	return this._sendMsg(MQ_PUBMEM, JEncode(topic, 0, msg))
+}
+
+func (this *Cli) SubJson(topic string) (_r int64, err error) {
+	return this._sendMsg(MQ_SUB|0x80, []byte(topic))
 }
 
 func (this *Cli) Sub(topic string) (_r int64, err error) {
@@ -262,20 +267,21 @@ func JDecode(bs []byte) (mb *JMqBean, err error) {
 	return
 }
 
-func TEncode(ts thrift.TStruct) []byte {
-	buf := thrift.NewTMemoryBuffer()
-	tcf := thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{})
-	tp := tcf.GetProtocol(buf)
-	ts.Write(context.Background(), tp)
-	return buf.Bytes()
+var tconf = &thrift.TConfiguration{}
+
+func TEncode(ts thrift.TStruct) (_r []byte) {
+	buf := &thrift.TMemoryBuffer{Buffer: bytes.NewBuffer([]byte{})}
+	protocol := thrift.NewTCompactProtocolConf(buf, tconf)
+	ts.Write(context.Background(), protocol)
+	protocol.Flush(context.Background())
+	_r = buf.Bytes()
+	return
 }
 
 func TDecode[T thrift.TStruct](bs []byte, ts T) (_r T, err error) {
-	buf := thrift.NewTMemoryBuffer()
-	buf.Buffer = bytes.NewBuffer(bs)
-	tcf := thrift.NewTCompactProtocolFactoryConf(&thrift.TConfiguration{})
-	tp := tcf.GetProtocol(buf)
-	err = ts.Read(context.Background(), tp)
+	buf := &thrift.TMemoryBuffer{Buffer: bytes.NewBuffer(bs)}
+	protocol := thrift.NewTCompactProtocolConf(buf, tconf)
+	err = ts.Read(context.Background(), protocol)
 	return ts, err
 }
 
