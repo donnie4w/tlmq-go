@@ -25,6 +25,8 @@ type MqClient interface {
 	Connect() (err error)
 	// Subscribe to a topic
 	Sub(topic string) (_r int64, err error)
+	// Subscribe to a topic
+	SubJson(topic string) (_r int64, err error)
 	// Unsubscribed topic
 	SubCancel(topic string) (_r int64, err error)
 
