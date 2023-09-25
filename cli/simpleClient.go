@@ -22,7 +22,7 @@ type SimpleClient struct {
 	MqCli     *Cli
 	conf      *Config
 	zlib      bool
-	subMap    map[string]byte
+	subMap    map[string]bool
 	//接收服务器数据
 	pullByteHandler func(mb *MqBean)
 	pullJsonHandler func(jmb *JMqBean)
@@ -31,12 +31,12 @@ type SimpleClient struct {
 	pubMemHandler   func(jmb *JMqBean)
 	ackHandler      func(id int64)
 	errHandler      func(code int64)
-
-	before func()
+	cliId           int64
+	before          func()
 }
 
 func NewMqClient(addr, auth string) MqClient {
-	sc := &SimpleClient{Url: addr, Auth: auth}
+	sc := &SimpleClient{Url: addr, Auth: auth, cliId: getAckId()}
 	return sc
 }
 
@@ -64,7 +64,7 @@ func (this *SimpleClient) Connect() (err error) {
 	}
 
 	if this.MqCli, err = NewCli(this.conf); err == nil {
-		this.MqCli.Auth(this.conf.Auth)
+		this.MqCli.Auth(this.conf.Auth, this.cliId)
 		go this.ping()
 	} else {
 		<-time.After(time.Second)
@@ -73,8 +73,12 @@ func (this *SimpleClient) Connect() (err error) {
 	}
 	<-time.After(time.Second)
 	if this.subMap != nil {
-		for k := range this.subMap {
-			this.Sub(k)
+		for k, v := range this.subMap {
+			if v {
+				this.SubJson(k)
+			} else {
+				this.Sub(k)
+			}
 		}
 	}
 	if this.before != nil {
@@ -128,13 +132,13 @@ func (this *SimpleClient) doMsg(msg []byte) {
 			logging.Error(err)
 		}
 	case MQ_ACK:
-		if r, err := BytesToInt64(msg[1:]); err == nil {
+		if r, err := bytesToInt64(msg[1:]); err == nil {
 			if this.ackHandler != nil {
 				this.ackHandler(r)
 			}
 		}
 	case MQ_ERROR:
-		if r, err := BytesToInt64(msg[1:]); err == nil {
+		if r, err := bytesToInt64(msg[1:]); err == nil {
 			if this.errHandler != nil {
 				this.errHandler(r)
 			}
@@ -151,6 +155,7 @@ func (this *SimpleClient) ping() {
 		case <-ticker.C:
 			if _, err := this.MqCli.Ping(); err != nil || this.pingCount > 3 {
 				this.pingCount++
+				logging.Error("ping over count>>", this.pingCount, err)
 				this.MqCli.Close()
 				goto END
 			}
@@ -162,18 +167,18 @@ END:
 // Subscribe to a topic
 func (this *SimpleClient) Sub(topic string) (_r int64, err error) {
 	if this.subMap == nil {
-		this.subMap = make(map[string]byte, 0)
+		this.subMap = make(map[string]bool, 0)
 	}
-	this.subMap[topic] = 0
+	this.subMap[topic] = false
 	return this.MqCli.Sub(topic)
 }
 
 // Subscribe to a topic
 func (this *SimpleClient) SubJson(topic string) (_r int64, err error) {
 	if this.subMap == nil {
-		this.subMap = make(map[string]byte, 0)
+		this.subMap = make(map[string]bool, 0)
 	}
-	this.subMap[topic] = 0
+	this.subMap[topic] = true
 	return this.MqCli.SubJson(topic)
 }
 
@@ -223,6 +228,18 @@ func (this *SimpleClient) PullJsonSync(topic string, id int64) (jmb *JMqBean, er
 // pull the maximum id number of the topic
 func (this *SimpleClient) PullIdSync(topic string) (id int64, err error) {
 	return this.MqCli.PullIdSync(topic)
+}
+
+func (this *SimpleClient) Lock(str string, overtime int32) (token string, err error) {
+	return this.MqCli.Lock(str, overtime)
+}
+
+func (this *SimpleClient) TryLock(str string, overtime int32) (token string, ok bool) {
+	return this.MqCli.TryLock(str, overtime)
+}
+
+func (this *SimpleClient) UnLock(key string) {
+	this.MqCli.UnLock(key)
 }
 
 // setup requires a client return receipt
