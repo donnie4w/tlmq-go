@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"hash/crc64"
 	"io"
 	"net/http"
 	"net/url"
@@ -46,7 +47,7 @@ const (
 	MQ_SUBCANCEL byte = 12
 	MQ_CURRENTID byte = 13
 	MQ_ZLIB      byte = 14
-	MQ_DEL       byte = 15
+	MQ_LOCK      byte = 15
 	MQ_ACK       byte = 0
 )
 
@@ -135,12 +136,12 @@ func (this *Cli) PullJson(topic string, id int64) (_r int64, err error) {
 }
 
 func (this *Cli) PullByteSync(topic string, id int64) (mb *MqBean, err error) {
-	bs, _ := this.getSendMsg(MQ_PULLBYTE, TEncode(&MqBean{Topic: topic, ID: id}))
+	bs := append([]byte{MQ_PULLBYTE}, TEncode(&MqBean{Topic: topic, ID: id})...)
 	var msg []byte
-	if msg, err = httpPost(bs, this.conf); err == nil {
+	if msg, err = httpPost(bs, this.conf, true); err == nil {
 		switch msg[0] {
 		case MQ_ERROR:
-			err = errors.New(fmt.Sprint(BytesToInt64(msg[1:])))
+			err = errors.New(fmt.Sprint(bytesToInt64(msg[1:])))
 		case MQ_PULLBYTE:
 			mb, err = TDecode(msg[1:], &MqBean{})
 		}
@@ -149,12 +150,12 @@ func (this *Cli) PullByteSync(topic string, id int64) (mb *MqBean, err error) {
 }
 
 func (this *Cli) PullJsonSync(topic string, id int64) (jmb *JMqBean, err error) {
-	bs, _ := this.getSendMsg(MQ_PULLJSON, JEncode(topic, id, ""))
+	bs := append([]byte{MQ_PULLJSON}, JEncode(topic, id, "")...)
 	var msg []byte
-	if msg, err = httpPost(bs, this.conf); err == nil {
+	if msg, err = httpPost(bs, this.conf, true); err == nil {
 		switch msg[0] {
 		case MQ_ERROR:
-			err = errors.New(fmt.Sprint(BytesToInt64(msg[1:])))
+			err = errors.New(fmt.Sprint(bytesToInt64(msg[1:])))
 		case MQ_PULLJSON:
 			jmb, err = JDecode(msg[1:])
 		}
@@ -163,17 +164,106 @@ func (this *Cli) PullJsonSync(topic string, id int64) (jmb *JMqBean, err error) 
 }
 
 func (this *Cli) PullIdSync(topic string) (id int64, err error) {
-	bs, _ := this.getSendMsg(MQ_CURRENTID, []byte(topic))
+	bs := append([]byte{MQ_CURRENTID}, []byte(topic)...)
 	var msg []byte
-	if msg, err = httpPost(bs, this.conf); err == nil {
+	if msg, err = httpPost(bs, this.conf, true); err == nil {
 		switch msg[0] {
 		case MQ_ERROR:
-			err = errors.New(fmt.Sprint(BytesToInt64(msg[1:])))
+			err = errors.New(fmt.Sprint(bytesToInt64(msg[1:])))
 		case MQ_CURRENTID:
-			id, err = BytesToInt64(msg[1:9])
+			id, err = bytesToInt64(msg[1:9])
 		}
 	}
 	return
+}
+
+var lockMap = &sync.Map{}
+
+func int64ToBytes(n int64) (bs []byte) {
+	bs = make([]byte, 8)
+	for i := 0; i < 8; i++ {
+		bs[i] = byte(n >> (8 * (7 - i)))
+	}
+	return
+}
+
+func int32ToBytes(n int32) (bs []byte) {
+	bs = make([]byte, 4)
+	for i := 0; i < 4; i++ {
+		bs[i] = byte(n >> (4 * (3 - i)))
+	}
+	return
+}
+
+func (this *Cli) TryLock(str string, overtime int32) (token string, ok bool) {
+	buf := bytes.NewBuffer([]byte{})
+	buf.WriteByte(MQ_LOCK)
+	buf.WriteByte(2)
+	strId := getAckId()
+	buf.Write(int64ToBytes(strId))
+	buf.Write(int32ToBytes(overtime))
+	buf.WriteString(str)
+	if bs, er := httpPost(buf.Bytes(), this.conf, true); er == nil {
+		if bs != nil && len(bs) == 16 {
+			token, ok = string(bs), true
+			lockMap.Store(token, strId)
+		}
+	}
+	return
+}
+
+func (this *Cli) Lock(str string, overtime int32) (token string, err error) {
+	buf := bytes.NewBuffer([]byte{})
+	buf.WriteByte(MQ_LOCK)
+	buf.WriteByte(1)
+	strId := getAckId()
+	buf.Write(int64ToBytes(strId))
+	buf.Write(int32ToBytes(overtime))
+	buf.WriteString(str)
+	count := 0
+	for {
+		if bs, er := httpPost(buf.Bytes(), this.conf, true); er == nil {
+			if len(bs) == 16 {
+				token = string(bs)
+				lockMap.Store(token, strId)
+				break
+			} else if len(bs) == 1 && bs[0] == 0 {
+				err = errors.New("lock failed")
+				return
+			} else if count == 0 {
+				buf.Reset()
+				buf.WriteByte(MQ_LOCK)
+				buf.WriteByte(1)
+				strId = getAckId()
+				buf.Write(int64ToBytes(strId))
+				buf.Write(int32ToBytes(overtime))
+				buf.WriteString(str)
+			}
+		}
+		count++
+	}
+	return
+}
+
+func (this *Cli) UnLock(token string) {
+	buf := bytes.NewBuffer([]byte{})
+	buf.WriteByte(MQ_LOCK)
+	buf.WriteByte(3)
+	v, ok := lockMap.Load(token)
+	if ok {
+		buf.Write(int64ToBytes(v.(int64)))
+		buf.WriteString(token)
+		for {
+			if bs, err := httpPost(buf.Bytes(), this.conf, true); err == nil {
+				if bs[0] == 1 {
+					lockMap.Delete(token)
+					break
+				}
+			} else {
+				<-time.After(1 * time.Second)
+			}
+		}
+	}
 }
 
 func (this *Cli) _send(bs []byte) (err error) {
@@ -185,7 +275,7 @@ func (this *Cli) _send(bs []byte) (err error) {
 func (this *Cli) ackMsg(bs []byte) (err error) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteByte(MQ_ACK)
-	buf.Write(Int64ToBytes(int64(CRC32(bs))))
+	buf.Write(int64ToBytes(int64(_CRC32(bs))))
 	err = this._send(buf.Bytes())
 	return
 }
@@ -201,7 +291,7 @@ func (this *Cli) getSendMsg(tlType byte, bs []byte) (_bs []byte, _r int64) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	buf.WriteByte(tlType)
 	_r = getAckId()
-	buf.Write(Int64ToBytes(_r))
+	buf.Write(int64ToBytes(_r))
 	if bs != nil {
 		buf.Write([]byte(bs))
 	}
@@ -209,7 +299,7 @@ func (this *Cli) getSendMsg(tlType byte, bs []byte) (_bs []byte, _r int64) {
 	return
 }
 
-func (this *Cli) Auth(str string) (_r int64, err error) {
+func (this *Cli) Auth(str string, cliId int64) (_r int64, err error) {
 	return this._sendMsg(MQ_AUTH, []byte(str))
 }
 
@@ -305,26 +395,36 @@ func _recover() {
 	}
 }
 
-func CRC32(bs []byte) uint32 {
+func _CRC32(bs []byte) uint32 {
 	return crc32.ChecksumIEEE(bs)
 }
 
-func Int64ToBytes(n int64) []byte {
-	bytesBuffer := bytes.NewBuffer([]byte{})
-	binary.Write(bytesBuffer, binary.BigEndian, n)
-	return bytesBuffer.Bytes()
+func _CRC64(bs []byte) uint64 {
+	return crc64.Checksum(bs, crc64.MakeTable(crc64.ECMA))
 }
 
-func BytesToInt64(bs []byte) (_r int64, err error) {
+func bytesToInt64(bs []byte) (_r int64, err error) {
 	bytesBuffer := bytes.NewBuffer(bs)
 	err = binary.Read(bytesBuffer, binary.BigEndian, &_r)
 	return
 }
 
-var seq int64 = 1
+var __inc int64
+
+func inc() int64 {
+	return atomic.AddInt64(&__inc, 1)
+}
+func newTxId() (txid int64) {
+	b := make([]byte, 16)
+	copy(b[0:8], int64ToBytes(inc()))
+	copy(b[8:], int64ToBytes(time.Now().UnixNano()))
+	txid = int64(_CRC32(b))
+	txid = txid<<32 | int64(int32(inc()))
+	return
+}
 
 func getAckId() int64 {
-	return int64(CRC32(append(Int64ToBytes(time.Now().UnixNano()), Int64ToBytes(atomic.AddInt64(&seq, 1))...)))
+	return newTxId()
 }
 
 func parse(conf *Config) {
@@ -338,23 +438,28 @@ func parse(conf *Config) {
 	conf.HttpUrl = url
 }
 
-func httpPost(bs []byte, conf *Config) (_r []byte, err error) {
+func httpPost(bs []byte, conf *Config, close bool) (_r []byte, err error) {
 	client := http.Client{}
 	bodyReader := bytes.NewReader(bs)
-	if strings.HasPrefix(conf.HttpUrl, "https:") {
-		tr := &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
-		client.Transport = tr
+	tr := &http.Transport{
+		DisableKeepAlives: true,
 	}
+	if strings.HasPrefix(conf.HttpUrl, "https:") {
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	client.Transport = tr
 	var req *http.Request
 	if req, err = http.NewRequestWithContext(context.Background(), http.MethodPost, conf.HttpUrl, bodyReader); err == nil {
-		req.Close = true
+		if close {
+			req.Close = true
+		}
 		req.Header.Set("Origin", conf.Origin)
 		req.AddCookie(&http.Cookie{Name: "auth", Value: conf.Auth})
 		var resp *http.Response
 		if resp, err = client.Do(req); err == nil {
-			defer resp.Body.Close()
+			if close {
+				defer resp.Body.Close()
+			}
 			var body []byte
 			if body, err = io.ReadAll(resp.Body); err == nil {
 				_r = body
