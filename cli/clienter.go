@@ -61,4 +61,13 @@ type MqClient interface {
 	MergeOn(size int8) (_r int64, err error)
 
 	SetZlib(on bool) (_r int64, err error)
+
+	// distributed lock, lock string, set the timeout period of the lock
+	Lock(str string, overtime int32) (token string, err error)
+
+	// try to get a distributed lock, lock string,and set the timeout period of the lock
+	TryLock(str string, overtime int32) (token string, ok bool)
+
+	// release lock resource
+	UnLock(key string)
 }
