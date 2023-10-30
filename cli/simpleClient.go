@@ -48,8 +48,7 @@ func (this *SimpleClient) Connect() (err error) {
 	this.conf.Auth = this.Auth
 	//出错后关闭连接并重新连接
 	this.conf.OnError = func(_ *Cli, _ error) {
-		logging.Error("OnError")
-		time.Sleep(1 * time.Second)
+		<-time.After(time.Second)
 		this.MqCli.Close()
 		this.Connect()
 	}
@@ -60,6 +59,7 @@ func (this *SimpleClient) Connect() (err error) {
 		if this.conf.RecvAckOn && (ty == MQ_PULLBYTE || ty == MQ_PULLJSON || ty == MQ_PUBJSON || ty == MQ_PUBBYTE || ty == MQ_MERGE) {
 			this.MqCli.ackMsg(msg)
 		}
+		this.pingCount = 0
 		this.doMsg(msg)
 	}
 
@@ -111,7 +111,9 @@ func (this *SimpleClient) doMsg(msg []byte) {
 			this.pullJsonHandler(mb)
 		}
 	case MQ_PING:
-		this.pingCount--
+		if this.pingCount > 0 {
+			this.pingCount--
+		}
 	case MQ_MERGE:
 		var bs []byte
 		var err error
@@ -153,8 +155,8 @@ func (this *SimpleClient) ping() {
 	for {
 		select {
 		case <-ticker.C:
-			if _, err := this.MqCli.Ping(); err != nil || this.pingCount > 3 {
-				this.pingCount++
+			this.pingCount++
+			if _, err := this.MqCli.Ping(); err != nil || this.pingCount > 5 {
 				logging.Error("ping over count>>", this.pingCount, err)
 				this.MqCli.Close()
 				goto END
